@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sqin"
+version = "0.1.0"
+description = "Squares in Squares (Kaggle): packing n unit squares into a minimal square"
+requires-python = ">=3.10"
+dependencies = [
+    "kaggle",
+    "numpy",
+    "scipy",
+    "numba",
+    "mpmath",
+    "pandas",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+# Added in chat 01 once sqin/cli.py exists:
+# [project.scripts]
+# sqin = "sqin.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
