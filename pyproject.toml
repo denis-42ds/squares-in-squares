@@ -22,9 +22,8 @@ dev = [
     "ruff",
 ]
 
-# Added in chat 01 once sqin/cli.py exists:
-# [project.scripts]
-# sqin = "sqin.cli:main"
+[project.scripts]
+sqin = "sqin.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
