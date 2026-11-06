@@ -77,7 +77,7 @@ squares-in-squares/
 ## Getting started
 
 ```bash
-git clone https://github.com/<your-username>/squares-in-squares.git
+git clone https://github.com/denis-42ds/squares-in-squares.git
 cd squares-in-squares
 python -m venv .venv
 source .venv/bin/activate

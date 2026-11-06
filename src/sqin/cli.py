@@ -8,7 +8,8 @@ from collections import Counter
 from decimal import Decimal
 from pathlib import Path
 
-from sqin.grid import grid_score, grid_total
+from sqin.grid import grid_score, grid_side, grid_total
+from sqin.gridcheck import rows_are_grid
 from sqin.io import MAX_N, read_rows, read_submission, write_submission
 from sqin.store import (
     has_best,
@@ -27,12 +28,20 @@ def _print_total():
     print(f"total = {total:.10f}   [{g}]")
 
 
-def verify_file(path, procs=DEFAULT_PROCS, raw=False):
+def verify_file(path, procs=DEFAULT_PROCS, raw=False, skip_grid=False):
     t0 = time.time()
     rows = read_rows(path, via_pandas=not raw)
     ns = sorted(n for n in rows if 1 <= n <= MAX_N)
-    res = gate_rows_many([(n, rows[n]) for n in ns], processes=procs, progress=True)
-    got = dict(zip(ns, res))
+    skipped = {}
+    if skip_grid:
+        for n in ns:
+            if rows_are_grid(n, rows[n]):
+                skipped[n] = (True, str(Decimal(grid_side(n))), "skip-grid")
+        print(f"skip-grid: {len(skipped)} puzzles not gated")
+    ns_gate = [n for n in ns if n not in skipped]
+    res = gate_rows_many([(n, rows[n]) for n in ns_gate], processes=procs, progress=True)
+    got = dict(zip(ns_gate, res))
+    got.update(skipped)
     total, bad, lines = 0.0, [], []
     for n in range(1, MAX_N + 1):
         r = got.get(n)
@@ -63,7 +72,7 @@ def cmd_baseline(a):
 
 
 def cmd_verify(a):
-    verify_file(a.file, a.procs, a.raw)
+    verify_file(a.file, a.procs, a.raw, a.skip_grid)
 
 
 def cmd_ingest(a):
@@ -113,6 +122,7 @@ def main(argv=None):
     s.add_argument("file")
     s.add_argument("--procs", type=int, default=DEFAULT_PROCS)
     s.add_argument("--raw", action="store_true")
+    s.add_argument("--skip-grid", action="store_true")
     s.set_defaults(fn=cmd_verify)
 
     s = sub.add_parser("ingest")
