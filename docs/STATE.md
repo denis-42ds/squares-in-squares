@@ -72,3 +72,15 @@
 
 ## Следующий шаг
 - Чат 02 по docs/chat02_brief.md: профиль score(n), verify --skip-grid, ядро оптимизатора opt/ (штраф + L-BFGS, сжатие контейнера, финальный polish через validate), прогон на малых n с записью в store.
+
+
+## Чат 02 (обновлено 2026-11-06)
+Сделано (код написан, не запущен):
+- gridcheck.py + cli verify --skip-grid (точное совпадение с grid(n) с точностью до сдвига)
+- profile.py + scripts/profile_scores.py: grid-таблица, группы, покрытие Friedman, экстраполяция (помечена допущением), приоритет n<=150
+- opt/energy.py (numba, SAT depth^2 + граница), opt/core.py (relax L-BFGS-B, feasible_start, compress, init 0/1/2 + neighbors), opt/runner.py (параллель по n, чекпойнты runs/opt/n{n}_r{run}.npz, финал polish->fast_check, запись из главного процесса через try_update_many processes=1, pushdown в конце)
+- tests/test_opt_energy.py (3 теста)
+Находки: вложенные Pool недопустимы (store только из main); n=5 даст not_better из-за MIN_GAIN, критерий по L_ours; Friedman-таблица без координат; нулевой зазор для наклонных пар недоступен (нужен eps).
+Total (до прогона): 28.8066840871 [<=100: 7.541572 / 101-400: 9.641102 / 401-1000: 11.624010]
+Входы: Friedman CSV (215 строк, n<=324, L only) в data/external/; публичных решений нет.
+Следующий шаг: прислать profile.txt, таблицу 2..30 с diff vs Friedman, time-gate n=30/100, sqin status. Решение по чату 04 (ускорить?) принимаем по числу coverage/remaining. Чат 03: SA/basin hopping на n<=150 по приоритетному списку, refine() для внешних SVG-стартов.
