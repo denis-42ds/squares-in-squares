@@ -7,10 +7,11 @@ from scipy.optimize import minimize
 
 from sqin.geometry import HALF_PI, extents
 from sqin.opt.energy import energy_grad
+from sqin.opt.sqp import sqp_polish
 
 TOL_E = 1e-24
 SEED_BASE = 20261106
-MIN_STEP = 1e-10
+MIN_STEP = 1e-7
 MAX_RELAX_CALLS = 400
 
 
@@ -27,7 +28,7 @@ def from_xya(xya):
     return np.concatenate([a[:, 0], a[:, 1], a[:, 2]])
 
 
-def relax(z0, n, L, maxiter):
+def relax(z0, n, L, maxiter, stall=True):
     g = np.empty(3 * n)
     e0 = energy_grad(z0, n, L, g)
     if e0 < TOL_E:
@@ -47,7 +48,7 @@ def relax(z0, n, L, maxiter):
         if best[0] < TOL_E:
             raise StopIteration
         k = len(hist)
-        if k >= 200 and k % 100 == 0 and best[0] > 0.7 * hist[k - 101]:
+        if stall and k >= 200 and k % 100 == 0 and best[0] > 0.7 * hist[k - 101]:
             raise StopIteration
 
     minimize(
@@ -74,7 +75,7 @@ def compress(z, n, L, step=0.02):
         r = 1.0 - step
         zt = z.copy()
         zt[: 2 * n] *= r
-        zt, e = relax(zt, n, L * r, 300 if step > 1e-4 else 4000)
+        zt, e = relax(zt, n, L * r, 300 if step > 1e-4 else 8000, stall=step > 1e-4)
         calls += 1
         if e < TOL_E:
             z, L = zt, L * r
@@ -139,5 +140,6 @@ def solve_run(n, run, neighbors=False):
     fs = feasible_start(z0, n, L0)
     if fs is None:
         return None
-    z, _L = compress(fs[0], n, fs[1])
+    z, L = compress(fs[0], n, fs[1])
+    z = sqp_polish(z, n, L)
     return to_xya(z, n)

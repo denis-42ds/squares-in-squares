@@ -12,7 +12,8 @@ import numpy as np
 from sqin.geometry import normalize, side_length
 from sqin.grid import grid_side
 from sqin.opt.core import SEED_BASE, solve_run
-from sqin.profile import load_friedman
+from sqin.opt.target import solve_target
+from sqin.profile import FR_TOL, load_friedman
 from sqin.store import push_down, root, total_score, try_update_many
 from sqin.validate import fast_check, gate, polish
 
@@ -39,8 +40,8 @@ def _dir():
     return d
 
 
-def _ckpt(n, run):
-    return _dir() / f"n{n:04d}_r{run:03d}.npz"
+def _ckpt(n, run, tgt):
+    return _dir() / f"n{n:04d}_r{run:03d}{'_t' if tgt else ''}.npz"
 
 
 def _save(p, xya, L, secs):
@@ -55,15 +56,21 @@ def _load(p):
 
 
 def work(task):
-    n, runs, neighbors = task
+    n, runs, neighbors, target, budget, run_secs = task
+    t_start = time.time()
     best_xya, best_L, secs, new = None, math.inf, 0.0, 0
     for run in range(runs):
-        p = _ckpt(n, run)
+        p = _ckpt(n, run, target is not None)
         if p.exists():
             xya, L, t = _load(p)
         else:
+            if time.time() - t_start > budget:
+                break
             t0 = time.time()
-            res = solve_run(n, run, neighbors)
+            if target is not None:
+                res = solve_target(n, run, target, run_secs)
+            else:
+                res = solve_run(n, run, neighbors)
             fin = finalize(res) if res is not None else None
             t = time.time() - t0
             xya, L = (fin[0], fin[1]) if fin is not None else (np.empty((0, 3)), math.inf)
@@ -96,6 +103,10 @@ def main(argv=None):
     p.add_argument("--runs", type=int, default=24)
     p.add_argument("--procs", type=int, default=8)
     p.add_argument("--neighbors", action="store_true")
+    p.add_argument("--target-fr", action="store_true", help="search at friedman L*(1+margin) for nontrivial n")
+    p.add_argument("--margin", type=float, default=1e-6)
+    p.add_argument("--secs", type=float, default=600.0, help="wall budget per n (no new run after it)")
+    p.add_argument("--run-secs", type=float, default=60.0, help="limit of one target search")
     p.add_argument("--friedman", default=str(root() / "data" / "external" / "friedman_L_compact.csv"))
     p.add_argument("--time-gate", type=int, nargs="*")
     a = p.parse_args(argv)
@@ -105,17 +116,26 @@ def main(argv=None):
         return 0
 
     fr = load_friedman(a.friedman)
-    ns = sorted(range(a.nmin, a.nmax + 1), reverse=True)
-    tasks = [(n, a.runs, a.neighbors) for n in ns]
+    tasks = []
+    for n in sorted(range(a.nmin, a.nmax + 1), reverse=True):
+        tgt = None
+        if a.target_fr:
+            if n not in fr or fr[n][0] >= float(grid_side(n)) - FR_TOL:
+                continue
+            tgt = fr[n][0] * (1.0 + a.margin)
+        tasks.append((n, a.runs, a.neighbors, tgt, a.secs, a.run_secs))
+    if not tasks:
+        print("no tasks")
+        return 0
     ctx = multiprocessing.get_context("fork")
     rows = []
-    print(f"seed_base={SEED_BASE} runs={a.runs} procs={a.procs}")
+    print(f"seed_base={SEED_BASE} runs={a.runs} procs={a.procs} target_fr={a.target_fr}")
     print(f"{'n':>4} {'L_ours':>16} {'L_friedman':>16} {'diff':>11} {'score':>10} {'secs':>8}  status")
     with ctx.Pool(processes=min(a.procs, len(tasks))) as pool:
         for n, xya, L, secs, new in pool.imap_unordered(work, tasks, chunksize=1):
             status = "no_candidate"
             if xya is not None:
-                src = f"own opt n={n} runs={a.runs} seed={SEED_BASE}; own work; no external license"
+                src = f"own opt n={n} runs={a.runs} seed={SEED_BASE} tfr={a.target_fr}; own work; no external license"
                 status = try_update_many([(n, xya, src)], polish_if_needed=True, processes=1)[0][1]
             fL, tag = (fr[n][0], "fr") if n in fr else (float(grid_side(n)), "grid")
             diff = L - fL if xya is not None else math.nan
