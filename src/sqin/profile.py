@@ -90,6 +90,15 @@ def main(argv=None):
     print(f"sum(grid_score - friedman_score): <=100: {s_le100:.6f}  101-324: {s_mid:.6f}  all: {s_all:.6f}")
     print(f"coverage of gap to top10: {s_all / gap10:.1%}   remaining to find: {gap10 - s_all:.6f}")
 
+    Ls = {r["n"]: (r["fr_L"] if r["fr_L"] is not None else r["grid_side"]) for r in rows if r["n"] <= 324}
+    cl, cur = {}, math.inf
+    for n in range(324, 0, -1):
+        cur = min(cur, Ls[n])
+        cl[n] = cur
+    lifted = [n for n in cl if cl[n] < Ls[n] - FR_TOL]
+    s_closed = math.fsum(grid_score(n) - max(0.0, cl[n] / math.sqrt(n) - 1.0) for n in cl)
+    print(f"closure L(n)<=min L(m>=n), m<=324: lifted {len(lifted)} n {lifted[:40]}; total gain {s_closed:.6f} vs table {s_all:.6f}")
+
     g_gt324 = _sum(rows, lambda r: r["n"] > 324, "grid_score")
     g_mid = _sum(rows, lambda r: 100 < r["n"] <= 324, "grid_score")
     print(f"grid mass n>324 (no data): {g_gt324:.6f}; needed relative cut there: {(gap10 - s_all) / g_gt324:.1%}")

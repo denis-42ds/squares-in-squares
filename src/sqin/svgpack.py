@@ -1,0 +1,246 @@
+from __future__ import annotations
+
+import argparse
+import math
+import re
+import xml.etree.ElementTree as ET
+from collections import Counter
+from pathlib import Path
+
+import numpy as np
+
+from sqin.geometry import min_sat_gap, normalize, side_length
+from sqin.profile import load_friedman
+from sqin.store import root, total_score, try_update_many
+
+XLINK = "{http://www.w3.org/1999/xlink}href"
+_SKIP = {"defs", "script", "title", "desc", "style", "metadata"}
+_TOK = re.compile(r"[A-Za-z]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
+_ENT = re.compile(r"<!ENTITY\s+(\w+)\s+(?:\"([^\"]*)\"|'([^']*)')\s*>")
+INT_TOL = 1e-9
+BAD_GAP = -1e-9
+
+
+def _T(tx, ty):
+    return np.array([[1.0, 0.0, tx], [0.0, 1.0, ty], [0.0, 0.0, 1.0]])
+
+
+def _transform(t):
+    M = np.eye(3)
+    for name, args in re.findall(r"([A-Za-z]+)\s*\(([^)]*)\)", t or ""):
+        v = [float(x) for x in re.split(r"[,\s]+", args.strip()) if x]
+        if name == "translate":
+            T = _T(v[0], v[1] if len(v) > 1 else 0.0)
+        elif name == "scale":
+            T = np.diag([v[0], v[1] if len(v) > 1 else v[0], 1.0])
+        elif name == "rotate":
+            a = math.radians(v[0])
+            c, s = math.cos(a), math.sin(a)
+            R = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+            T = _T(v[1], v[2]) @ R @ _T(-v[1], -v[2]) if len(v) == 3 else R
+        elif name == "matrix":
+            a, b, c, d, e, f = v
+            T = np.array([[a, c, e], [b, d, f], [0.0, 0.0, 1.0]])
+        else:
+            raise ValueError(f"unsupported transform {name}")
+        M = M @ T
+    return M
+
+
+def _parse_path(d):
+    if _TOK.sub("", d).replace(",", "").strip():
+        raise ValueError("unsupported characters in path")
+    toks = _TOK.findall(d)
+    need = {"M": 2, "L": 2, "H": 1, "V": 1}
+    subs, cur = [], []
+    pos = start = (0.0, 0.0)
+    cmd = None
+    i = 0
+
+    def close():
+        nonlocal cur
+        if len(cur) >= 3:
+            subs.append(cur)
+        cur = []
+
+    while i < len(toks):
+        t = toks[i]
+        if t.isalpha():
+            if t.upper() not in "MLHVZ":
+                raise ValueError(f"unsupported path command {t}")
+            cmd = t
+            i += 1
+            if t in "Zz":
+                close()
+                pos = start
+                continue
+        elif cmd is None or cmd in "Zz":
+            raise ValueError("number without command")
+        up = cmd.upper()
+        k = need[up]
+        v = [float(x) for x in toks[i : i + k]]
+        if len(v) < k:
+            raise ValueError("truncated path")
+        i += k
+        rel = cmd.islower()
+        x, y = pos
+        if up in "ML":
+            nx, ny = (x + v[0], y + v[1]) if rel else (v[0], v[1])
+        elif up == "H":
+            nx, ny = (x + v[0] if rel else v[0]), y
+        else:
+            nx, ny = x, (y + v[0] if rel else v[0])
+        if up == "M":
+            close()
+            start = (nx, ny)
+            cur = [start]
+            cmd = "l" if rel else "L"
+        else:
+            if not cur:
+                cur = [pos]
+            cur.append((nx, ny))
+        pos = (nx, ny)
+    close()
+    return subs
+
+
+def _cells(subs):
+    pts = [p for s in subs for p in s]
+    if not pts:
+        return []
+    if any(abs(c - round(c)) > INT_TOL for p in pts for c in p):
+        raise ValueError("non-integer path vertex")
+    xs = [round(p[0]) for p in pts]
+    ys = [round(p[1]) for p in pts]
+    out = []
+    for i in range(min(xs), max(xs)):
+        for j in range(min(ys), max(ys)):
+            px, py = i + 0.5, j + 0.5
+            inside = False
+            for s in subs:
+                m = len(s)
+                for k in range(m):
+                    x1, y1 = s[k]
+                    x2, y2 = s[(k + 1) % m]
+                    if (y1 > py) != (y2 > py) and x1 + (py - y1) * (x2 - x1) / (y2 - y1) > px:
+                        inside = not inside
+            if inside:
+                out.append((px, py))
+    return out
+
+
+def _add(out, M, lx, ly):
+    v = M @ np.array([lx, ly, 1.0])
+    out.append((float(v[0]), float(v[1]), math.atan2(M[1, 0], M[0, 0])))
+
+
+def _is_int(v):
+    return abs(v - round(v)) < INT_TOL and round(v) >= 1
+
+
+def _walk(el, M, fill_none, ids, out, depth=0):
+    if depth > 40:
+        raise ValueError("recursion too deep")
+    tag = el.tag.rsplit("}", 1)[-1]
+    if tag in _SKIP:
+        return
+    fn = fill_none
+    if el.get("fill") is not None:
+        fn = el.get("fill").strip() == "none"
+    m = re.search(r"(?:^|;)\s*fill\s*:\s*([^;]+)", el.get("style") or "")
+    if m:
+        fn = m.group(1).strip() == "none"
+    M = M @ _transform(el.get("transform"))
+    if tag == "use":
+        href = el.get(XLINK) or el.get("href") or ""
+        ref = ids.get(href.lstrip("#"))
+        if ref is None:
+            raise ValueError(f"unresolved use {href}")
+        _walk(ref, M @ _T(float(el.get("x", 0)), float(el.get("y", 0))), fn, ids, out, depth + 1)
+    elif tag in ("g", "svg"):
+        for ch in el:
+            _walk(ch, M, fn, ids, out, depth + 1)
+    elif tag == "rect":
+        if fn or el.get("id") == "outer":
+            return
+        w, h = float(el.get("width", 0)), float(el.get("height", 0))
+        if not (_is_int(w) and _is_int(h)):
+            return
+        x0, y0 = float(el.get("x", 0)), float(el.get("y", 0))
+        for i in range(round(w)):
+            for j in range(round(h)):
+                _add(out, M, x0 + i + 0.5, y0 + j + 0.5)
+    elif tag == "path":
+        if fn:
+            return
+        for lx, ly in _cells(_parse_path(el.get("d", ""))):
+            _add(out, M, lx, ly)
+    elif tag in ("polygon", "polyline"):
+        raise ValueError(f"unsupported element {tag}")
+
+
+def parse_svg_text(text):
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    text = re.sub(r"<\?xml[^>]*\?>", "", text)
+    ents = {m.group(1): (m.group(2) if m.group(2) is not None else m.group(3)) for m in _ENT.finditer(text)}
+    text = re.sub(r"<!DOCTYPE[^\[>]*\[.*?\]\s*>", "", text, flags=re.DOTALL)
+    text = re.sub(r"&(\w+);", lambda m: ents.get(m.group(1), m.group(0)), text)
+    tree = ET.fromstring(text)
+    ids = {e.get("id"): e for e in tree.iter() if e.get("id")}
+    out = []
+    _walk(tree, np.eye(3), False, ids, out)
+    if not out:
+        raise ValueError("no squares found")
+    return np.array(out, dtype=np.float64)
+
+
+def parse_svg(path):
+    return parse_svg_text(Path(path).read_text(encoding="utf-8"))
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="svgpack")
+    p.add_argument("files", nargs="+")
+    p.add_argument("--dry", action="store_true")
+    p.add_argument("--procs", type=int, default=4)
+    p.add_argument("--friedman", default=str(root() / "data" / "external" / "friedman_L_compact.csv"))
+    a = p.parse_args(argv)
+    fr = load_friedman(a.friedman)
+    cands, failed = [], []
+    for f in sorted(a.files):
+        name = Path(f).name
+        m = re.search(r"(\d+)", name)
+        try:
+            xya = parse_svg(f)
+        except Exception as e:  # noqa: BLE001
+            failed.append((name, f"parse error: {e}"))
+            continue
+        n = len(xya)
+        if m and int(m.group(1)) != n:
+            failed.append((name, f"count {n} != n in name {m.group(1)}"))
+            continue
+        arr = normalize(xya)
+        gap, L = min_sat_gap(arr), side_length(arr)
+        if gap < BAD_GAP:
+            failed.append((name, f"overlap gap={gap:.3e}"))
+            continue
+        ref = f" diff_vs_csv={L - fr[n][0]:.3e}" if n in fr else ""
+        print(f"{name}: n={n} L={L:.14f} min_gap={gap:.3e}{ref}", flush=True)
+        src = f"friedman svg {name}; erich-friedman.github.io (authors in file header); license: not stated"
+        cands.append((n, xya, src))
+    for name, why in failed:
+        print(f"FAILED {name}: {why}")
+    if a.dry or not cands:
+        return 0
+    res = try_update_many(cands, polish_if_needed=True, processes=a.procs)
+    print(dict(Counter(s for _, s, _ in res)))
+    for n, s, d in res:
+        if s in ("rejected_fast", "rejected_gate"):
+            print(f"  n={n}: {s} {d}")
+    t, g = total_score()
+    print(f"total = {t:.10f}   [" + " / ".join(f"{k}: {v:.6f}" for k, v in g.items()) + "]")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
