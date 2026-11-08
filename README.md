@@ -9,6 +9,7 @@
 [![pytest](https://img.shields.io/badge/tested%20with-pytest-0A9EDC?logo=pytest&logoColor=white)](https://docs.pytest.org/)
 [![Ruff](https://img.shields.io/badge/lint-Ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
 [![Kaggle](https://img.shields.io/badge/Kaggle-Squares%20in%20Squares-20BEFF?logo=kaggle&logoColor=white)](https://www.kaggle.com/competitions/squares-in-squares)
+[![CI](https://github.com/denis-42ds/squares-in-squares/actions/workflows/ci.yml/badge.svg)](https://github.com/denis-42ds/squares-in-squares/actions/workflows/ci.yml)
 
 Solver toolkit for the Kaggle competition
 **[Squares in Squares](https://www.kaggle.com/competitions/squares-in-squares)**:
@@ -112,3 +113,4 @@ Apache 2.0
 - [Kaggle](https://www.kaggle.com/) and Google for hosting and sponsoring the competition.
 - Erich Friedman's [Packing Center](https://erich-friedman.github.io/packing/) for decades of
   documented best-known packings.
+- [src/sqin/vendor/metric.py](https://github.com/denis-42ds/squares-in-squares/blob/main/src/sqin/vendor/metric.py) is the unmodified official Kaggle metric; see [src/sqin/vendor/README.md](https://github.com/denis-42ds/squares-in-squares/blob/main/src/sqin/vendor/README.md)

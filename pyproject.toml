@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "sqin"
 version = "0.1.0"
 description = "Squares in Squares (Kaggle): packing n unit squares into a minimal square"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 dependencies = [
     "kaggle",
     "numpy",
@@ -21,6 +21,7 @@ dev = [
     "pytest",
     "ruff",
 ]
+kaggle = ["kaggle"]
 
 [project.scripts]
 sqin = "sqin.cli:main"
@@ -33,3 +34,4 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
+extend-exclude = ["src/sqin/vendor"]

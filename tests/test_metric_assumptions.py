@@ -1,9 +1,15 @@
 import math
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from sqin.vendor import metric as M
+
+SAMPLE = Path("data/submissions/sample_submission.csv")
+if not SAMPLE.exists():
+    pytest.skip("local Kaggle sample file is not available", allow_module_level=True)
 
 
 def check(n, pts):
