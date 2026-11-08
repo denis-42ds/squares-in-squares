@@ -10,7 +10,8 @@ from pathlib import Path
 import numpy as np
 
 from sqin.geometry import min_sat_gap, normalize, side_length
-from sqin.profile import load_friedman
+from sqin.grid import grid_side
+from sqin.profile import FR_TOL, load_friedman
 from sqin.store import root, total_score, try_update_many
 
 XLINK = "{http://www.w3.org/1999/xlink}href"
@@ -228,6 +229,9 @@ def main(argv=None):
         print(f"{name}: n={n} L={L:.14f} min_gap={gap:.3e}{ref}", flush=True)
         src = f"friedman svg {name}; erich-friedman.github.io (authors in file header); license: not stated"
         cands.append((n, xya, src))
+    have = {n for n, _, _ in cands}
+    todo = sorted(n for n, (L, _) in fr.items() if L < float(grid_side(n)) - FR_TOL and n not in have)
+    print(f"nontrivial csv n without candidate: {len(todo)} {todo[:80]}")
     for name, why in failed:
         print(f"FAILED {name}: {why}")
     if a.dry or not cands:
