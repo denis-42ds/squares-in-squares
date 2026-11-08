@@ -109,6 +109,22 @@ def _xya(z, n):
     return np.stack([z[:n], z[n : 2 * n], z[2 * n :]], axis=1)
 
 
+def _constraint(n, I, J, K):
+    m = 4 * n + len(I)
+    cbuf = np.empty(m)
+    Jbuf = np.zeros((m, 3 * n + 1))
+
+    def fun(x):
+        _cons(x, n, I, J, K, GAP_TARGET, cbuf, Jbuf)
+        return cbuf.copy()
+
+    def jac(x):
+        _cons(x, n, I, J, K, GAP_TARGET, cbuf, Jbuf)
+        return Jbuf.copy()
+
+    return fun, jac
+
+
 def sqp_polish(z, n, L, rounds=3, maxiter=300):
     best = np.array(z, dtype=np.float64, copy=True)
     best_side = side_length(_xya(best, n))
@@ -117,17 +133,7 @@ def sqp_polish(z, n, L, rounds=3, maxiter=300):
     obj_jac[-1] = 1.0
     for _ in range(rounds):
         I, J, K = _pairs(v[: 3 * n], n)
-        m = 4 * n + len(I)
-        cbuf = np.empty(m)
-        Jbuf = np.zeros((m, 3 * n + 1))
-
-        def fun(x):
-            _cons(x, n, I, J, K, GAP_TARGET, cbuf, Jbuf)
-            return cbuf.copy()
-
-        def jac(x):
-            _cons(x, n, I, J, K, GAP_TARGET, cbuf, Jbuf)
-            return Jbuf.copy()
+        fun, jac = _constraint(n, I, J, K)
 
         try:
             res = minimize(
