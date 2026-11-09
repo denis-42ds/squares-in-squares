@@ -17,9 +17,23 @@ from sqin.store import root, total_score, try_update_many
 XLINK = "{http://www.w3.org/1999/xlink}href"
 _SKIP = {"defs", "script", "title", "desc", "style", "metadata"}
 _TOK = re.compile(r"[A-Za-z]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
-_ENT = re.compile(r"<!ENTITY\s+(\w+)\s+(?:\"([^\"]*)\"|'([^']*)')\s*>")
 INT_TOL = 1e-9
 BAD_GAP = -1e-9
+_ENT = re.compile(r"<!ENTITY\s+([^\s\"'>]+)\s+(?:\"([^\"]*)\"|'([^']*)')\s*>")
+_REF = re.compile(r"&([^\s;&<>\"']+);")
+_STD = {"amp", "lt", "gt", "quot", "apos"}
+
+
+def _expand(text, ents):
+    for _ in range(10):
+        new = _REF.sub(lambda m: ents[m.group(1)] if m.group(1) in ents else m.group(0), text)
+        if new == text:
+            break
+        text = new
+    left = sorted({m.group(1) for m in _REF.finditer(text) if m.group(1) not in _STD and not m.group(1).startswith("#")})
+    if left:
+        raise ValueError(f"undefined entities: {left}")
+    return text
 
 
 def _T(tx, ty):
@@ -107,10 +121,13 @@ def _parse_path(d):
 
 def _cells(subs):
     pts = [p for s in subs for p in s]
-    if not pts:
-        return []
-    if any(abs(c - round(c)) > INT_TOL for p in pts for c in p):
-        raise ValueError("non-integer path vertex")
+#    if not pts:
+#        return []
+#    if any(abs(c - round(c)) > INT_TOL for p in pts for c in p):
+#        raise ValueError("non-integer path vertex")
+    bad = [p for p in pts if any(abs(c - round(c)) > INT_TOL for c in p)]
+    if bad:
+        raise ValueError(f"non-integer path vertex {bad[:2]}")
     xs = [round(p[0]) for p in pts]
     ys = [round(p[1]) for p in pts]
     out = []
@@ -185,7 +202,7 @@ def parse_svg_text(text):
     text = re.sub(r"<\?xml[^>]*\?>", "", text)
     ents = {m.group(1): (m.group(2) if m.group(2) is not None else m.group(3)) for m in _ENT.finditer(text)}
     text = re.sub(r"<!DOCTYPE[^\[>]*\[.*?\]\s*>", "", text, flags=re.DOTALL)
-    text = re.sub(r"&(\w+);", lambda m: ents.get(m.group(1), m.group(0)), text)
+    text = _expand(text, ents)
     tree = ET.fromstring(text)
     ids = {e.get("id"): e for e in tree.iter() if e.get("id")}
     out = []
