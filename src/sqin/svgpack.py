@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import math
 import re
 import xml.etree.ElementTree as ET
@@ -17,7 +18,7 @@ from sqin.store import root, total_score, try_update_many
 XLINK = "{http://www.w3.org/1999/xlink}href"
 _SKIP = {"defs", "script", "title", "desc", "style", "metadata"}
 _TOK = re.compile(r"[A-Za-z]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
-INT_TOL = 1e-9
+TOL = 1e-9
 BAD_GAP = -1e-9
 _ENT = re.compile(r"<!ENTITY\s+([^\s\"'>]+)\s+(?:\"([^\"]*)\"|'([^']*)')\s*>")
 _REF = re.compile(r"&([^\s;&<>\"']+);")
@@ -119,32 +120,59 @@ def _parse_path(d):
     return subs
 
 
+def _slabs(subs):
+    ys = sorted({p[1] for s in subs for p in s})
+    cl = []
+    for y in ys:
+        if not cl or y - cl[-1] > TOL:
+            cl.append(y)
+    edges = []
+    for s in subs:
+        m = len(s)
+        for k in range(m):
+            (x1, y1), (x2, y2) = s[k], s[(k + 1) % m]
+            if abs(x1 - x2) <= TOL:
+                if abs(y1 - y2) > TOL:
+                    edges.append((x1, min(y1, y2), max(y1, y2)))
+            elif abs(y1 - y2) > TOL:
+                raise ValueError("non-orthogonal path edge")
+    frags = []
+    for y0, y1 in itertools.pairwise(cl):
+        ym = 0.5 * (y0 + y1)
+        xs = sorted(x for x, lo, hi in edges if lo < ym < hi)
+        if len(xs) % 2:
+            raise ValueError("odd edge crossing")
+        for a, b in zip(xs[0::2], xs[1::2]):
+            if b - a > TOL:
+                frags.append((a, b, y0, y1))
+    return frags
+
+
 def _cells(subs):
-    pts = [p for s in subs for p in s]
-#    if not pts:
-#        return []
-#    if any(abs(c - round(c)) > INT_TOL for p in pts for c in p):
-#        raise ValueError("non-integer path vertex")
-    bad = [p for p in pts if any(abs(c - round(c)) > INT_TOL for c in p)]
-    if bad:
-        raise ValueError(f"non-integer path vertex {bad[:2]}")
-    xs = [round(p[0]) for p in pts]
-    ys = [round(p[1]) for p in pts]
+    frags = _slabs(subs)
     out = []
-    for i in range(min(xs), max(xs)):
-        for j in range(min(ys), max(ys)):
-            px, py = i + 0.5, j + 0.5
-            inside = False
-            for s in subs:
-                m = len(s)
-                for k in range(m):
-                    x1, y1 = s[k]
-                    x2, y2 = s[(k + 1) % m]
-                    if (y1 > py) != (y2 > py) and x1 + (py - y1) * (x2 - x1) / (y2 - y1) > px:
-                        inside = not inside
-            if inside:
-                out.append((px, py))
-    return out
+    for _ in range(100000):
+        if not frags:
+            return out
+        ymin = min(f[2] for f in frags)
+        f = min((g for g in frags if g[2] <= ymin + TOL), key=lambda g: g[0])
+        sx, sy = f[0], ymin
+        rest, removed = [], 0.0
+        for a0, a1, b0, b1 in frags:
+            i0, i1 = max(a0, sx), min(a1, sx + 1.0)
+            j0, j1 = max(b0, sy), min(b1, sy + 1.0)
+            if i1 - i0 <= TOL or j1 - j0 <= TOL:
+                rest.append((a0, a1, b0, b1))
+                continue
+            removed += (i1 - i0) * (j1 - j0)
+            for q in ((a0, a1, b0, j0), (a0, a1, j1, b1), (a0, i0, j0, j1), (i1, a1, j0, j1)):
+                if q[1] - q[0] > TOL and q[3] - q[2] > TOL:
+                    rest.append(q)
+        if abs(removed - 1.0) > 1e-6:
+            raise ValueError(f"region is not tiled by unit squares near ({sx:.6f},{sy:.6f})")
+        out.append((sx + 0.5, sy + 0.5))
+        frags = rest
+    raise ValueError("tiling did not terminate") 
 
 
 def _add(out, M, lx, ly):
@@ -153,7 +181,7 @@ def _add(out, M, lx, ly):
 
 
 def _is_int(v):
-    return abs(v - round(v)) < INT_TOL and round(v) >= 1
+    return abs(v - round(v)) < TOL and round(v) >= 1
 
 
 def _walk(el, M, fill_none, ids, out, depth=0):
@@ -204,7 +232,11 @@ def parse_svg_text(text):
     text = re.sub(r"<!DOCTYPE[^\[>]*\[.*?\]\s*>", "", text, flags=re.DOTALL)
     text = _expand(text, ents)
     tree = ET.fromstring(text)
-    ids = {e.get("id"): e for e in tree.iter() if e.get("id")}
+    ids = {}
+    for e in tree.iter():
+        i = e.get("id")
+        if i and i not in ids:
+            ids[i] = e
     out = []
     _walk(tree, np.eye(3), False, ids, out)
     if not out:

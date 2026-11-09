@@ -41,3 +41,36 @@ def test_parse_small():
 def test_parse_strip():
     svg = SVG.replace('<use xlink:href="#one" transform="translate(2 1) rotate(45)"/>', '<rect width="2" height="1"/>')
     assert len(parse_svg_text(svg)) == 5
+
+
+def _wrap(body):
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
+        f'style="fill:#B2B2B2">{body}</svg>'
+    )
+
+
+def test_offset_polygon():
+    a = parse_svg_text(_wrap('<path d="M0,0 H1 V1 h.25 V2 h-1 V1 H0 Z"/>'))
+    a = a[np.lexsort((a[:, 1], a[:, 0]))]
+    assert a.shape == (2, 3)
+    assert np.allclose(a[:, :2], [[0.5, 0.5], [0.75, 1.5]])
+
+
+def test_relative_move_unit_square():
+    a = parse_svg_text(_wrap('<path d="M2,5 m-.25,0 V6 h1 V5"/>'))
+    assert a.shape == (1, 3) and np.allclose(a[0, :2], [2.25, 5.5])
+
+
+def test_staggered_squares():
+    a = parse_svg_text(_wrap('<path d="M0,0 H1 V.5 H2 V1.5 H1 V1 H0 Z"/>'))
+    a = a[np.lexsort((a[:, 1], a[:, 0]))]
+    assert np.allclose(a[:, :2], [[0.5, 0.5], [1.5, 1.0]])
+
+
+def test_duplicate_id_first_wins():
+    svg = _wrap(
+        '<defs><rect width="1" height="1" id="one"/><g id="two"><rect width="2" height="1" id="one"/></g></defs>'
+        '<use xlink:href="#one"/>'
+    )
+    assert len(parse_svg_text(svg)) == 1
