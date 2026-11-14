@@ -58,18 +58,31 @@ id,n,square_id,x,y,angle
 ```
 squares-in-squares/
 ├── pyproject.toml
-├── STATE.md                 # project status, updated after every working session
-├── docs/
+├── docs/                    # supporting documents (git-ignored)
+│   ├── STATE.md             # project status, updated after every working session
 │   └── metric_notes.md      # validator behavior, tolerances, submission format
 ├── src/sqin/
 │   ├── vendor/metric.py     # official metric code, unmodified
-│   ├── io.py                # read/write submissions
+│   ├── cli.py
+│   ├── construct.py
+│   ├── families.py
+│   ├── fetch_svgs.py
+│   ├── gaps.py
 │   ├── geometry.py          # corners, side length, numba SAT prefilter
-│   ├── validate.py          # fast check, polishing, gate via the official metric
-│   ├── store.py             # best[n], strict-improvement updates, push-down
 │   ├── grid.py              # trivial grid baseline
+│   ├── gridcheck.py
+│   ├── io.py                # read/write submissions
+│   ├── profile.py
+│   ├── store.py             # best[n], strict-improvement updates, push-down
+│   ├── strip.py
+│   ├── svgpack.py
+│   ├── validate.py          # fast check, polishing, gate via the official metric
 │   └── opt/                 # optimizers (penalty, annealing, polishing)
 ├── scripts/                 # thin launchers
+│   ├── parse_friedman.py
+│   ├── profile_scores.py
+│   ├── run_opt.py
+│   └── trivial_stats.py
 ├── tests/                   # metric assumption tests and unit tests
 ├── data/                    # best solutions, external data, submissions (git-ignored)
 └── runs/                    # logs (git-ignored)
