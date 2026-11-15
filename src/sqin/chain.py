@@ -89,14 +89,26 @@ def build(ks, steps, arrs, e):
     return np.vstack(parts + [np.column_stack([cells, np.zeros(len(cells))])])
 
 
-def candidates(cmax):
+def cross(cls):
+    acc, out = {}, []
+    for e, seed in sorted(cls, key=lambda c: c[0]):
+        for k, n in seed.items():
+            acc[k] = max(acc.get(k, 0), n)
+        out.append((e, dict(acc)))
+    return out
+
+
+def candidates(cmax, use_cross=False):
     old = {n: float(store.best_L(n)) for n in range(1, store.MAX_N + 1)}
-    cands = []
-    for e, seed in classes():
+    cls = classes()
+    if use_cross:
+        cls = cross(cls)
+    by_n = {}
+    for e, seed in cls:
         arrs = {}
         for K, (J, ks, r, z) in best_chains(seed, cmax).items():
             n, L = K * K + J, K + e
-            if J < 1 or n > store.MAX_N or L >= old[n] - 1e-9:
+            if J < 1 or n > store.MAX_N or L >= old[n] - 1e-9 or (n in by_n and by_n[n][2] <= L):
                 continue
             for k in ks:
                 if k not in arrs:
@@ -106,8 +118,8 @@ def candidates(cmax):
                 print(f"MISMATCH K={K} ks={ks} r={r} z={z}: built {len(arr)} expected {n}")
                 continue
             gain = _score(old[n], n) - _score(L, n)
-            cands.append((gain, n, L, arr, f"chain ks={list(ks)} r={r} z={z} e={e:.6f}"))
-    return old, cands
+            by_n[n] = (gain, n, L, arr, f"chain ks={list(ks)} r={r} z={z} e={e:.6f}")
+    return old, list(by_n.values())
 
 
 def estimate(old, cands):
@@ -129,9 +141,10 @@ def main(argv=None):
     p.add_argument("--cmax", type=int, default=8)
     p.add_argument("--rounds", type=int, default=5)
     p.add_argument("--procs", type=int, default=6)
+    p.add_argument("--cross", action="store_true")
     a = p.parse_args(argv)
     for r in range(1, a.rounds + 1):
-        old, cands = candidates(a.cmax)
+        old, cands = candidates(a.cmax, a.cross)
         if a.dry:
             estimate(old, cands)
             return
