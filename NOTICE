@@ -1,0 +1,7 @@
+This project merges packings published by goodpjw2008 (Kaggle notebook "Squares in Squares | Hopper Records | LB 22.105790", Apache-2.0).
+Upstream credits as stated in that notebook's description (not independently verified):
+Malyshev Danil (Living Atlas), prvsiyan (A Square Deal, Apache-2.0) and Areeb Ali (SiS), Sung Heo / kmmmvs (Public Merge Daily, Apache-2.0),
+jazivxt (Boxed In dataset and Boxed In Sub, Apache-2.0), sigmaborov (Certified Contact Polish), Ross Wade (Growing Packings, sq_engine, CC BY 4.0),
+Joost de Winter (s(299), s(305)), Joshua Levy (jlevy/squares, CC BY 4.0), romywicaksono (squares-pipeline, s(367)), Evan Daniel (evand/square-packing, MIT),
+alex chilton (starter kit Apache-2.0, fault-line DP), Chris Deotte (fault-line composition), Nevska, mizeroluckygall, lucifer19, inversion (per-puzzle leaderboard).
+Earlier base packings: Erich Friedman's Packing Center SVGs (authors in file headers).
